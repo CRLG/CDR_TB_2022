@@ -19,6 +19,8 @@
 //CONFIGURATION DU ROBOT
 //pour debuguer le programme, mettre à true
 #define DEBUG false
+//pour debuguer le robot sur table (sans capteurs, etc)
+#define ARDUINO_ALONE false
 //à décommenter pour utiliser le bandeau de LEDS
 #define UTILISE_LEDS false
 //à décommenter pour utiliser la camera
@@ -147,18 +149,14 @@
 //Création variables globales
 bool bProgrammeDemarre; // variable qui indique si le programme est demarre (demarre==true), utilisé par la tirette
 int couleur_equipe;
-char etatTelecommande; //dernier état reçu de la télécommande (pour éviter de traiter toujours le même ordre)
-int gobelet_leve; //0 range, 1 milieu, 2 leve
-bool manchon_sorti; 
-bool pincesOuvertes;
-int super_vitesse;
-bool super_vitesse_active;
 long compteur_temps; //toutes les 10 ms a peu près (temps reel mou)
 int temps_match;
 float vitesseG_n;
 float vitesseD_n;
 int step_time;
 long start_time;
+long start_time_match;
+int nombre_points;
 
 
 //Création des servos
@@ -813,64 +811,49 @@ bool frontConvergence () /////////////////////////////////savoir s'il a converg�
 
 void cadenceur()
 {
-    //compteur_temps++;
-    //actions toutes les 10 millisecondes
-      //on relève les pas codeurs
-      //on fait une boucle d'asservissement
+  //actions toutes les 10 millisecondes à peu près
+  //on relève les pas codeurs
+  //on fait une boucle d'asservissement
+  
+  if (etat_asservissement == 1)
+  {
+    asservissement();
+  }
+  
+  if (etat_asservissement == 2)
+  {
+    asservissement_angle ();
+  }
+  
+  if (frontConvergence())
+  {
+    etatCourant++;
+  }  
 
-      if (etat_asservissement == 1)
-      {
-        asservissement();
-      }
+  //actions toutes les 50 millisecondes
+  if(compteur_temps%5==0)
+  {
+    strategie (etatCourant);
+    //on regarde l'état des capteurs
+  }
 
-      if (etat_asservissement == 2)
-      {
-        asservissement_angle ();
-      }
-     
-      if (frontConvergence())
-      {
-        etatCourant++;
-      }
+  //actions toutes les 200 millisecondes
+  if(compteur_temps%20==0)
+  {
+    //on s'occupe de la messagerie
+    LectureDistanceObtsacle();
+  }
+
+  //actions toutes les 500 millisecondes
+  if(compteur_temps%50==0)
+  {
       
+  }
 
-    //actions toutes les 50 millisecondes
-    if(compteur_temps%5==0)
-    {
-      strategie (etatCourant);
-      //on regarde l'état des capteurs
-    }
-
-    //actions toutes les 200 millisecondes
-    if(compteur_temps%20==0)
-    {
-      //on s'occupe de la messagerie
-      LectureDistanceObtsacle();
-    }
-
-    //actions toutes les 500 millisecondes
-    if(compteur_temps%50==0)
-    {
-       
-      
-    }
-
-    //actions toutes les secondes
-    if(compteur_temps%100==0)
-    {   
-      
-      if (bProgrammeDemarre) // compteur du temps de match
-      {
-        temps_match++;
-      }
-
-          /*lcd.init();
-  // Affichage des distances sur l'écran LCD
-  lcd.backlight();
-  lcd.setCursor(0,0); lcd.print("CAPTEUR 1"); lcd.setCursor(10,0); lcd.print(capteur1);lcd.setCursor(17,0); lcd.print("cm");
-  lcd.setCursor(0,1); lcd.print("CAPTEUR 2"); lcd.setCursor(10,1); lcd.print(capteur2);lcd.setCursor(17,1); lcd.print("cm");
-  lcd.setCursor(0,2); lcd.print("CAPTEUR 3"); lcd.setCursor(10,2); lcd.print(capteur3);lcd.setCursor(17,2); lcd.print("cm");
-  lcd.setCursor(0,3); lcd.print("CAPTEUR 4"); lcd.setCursor(10,3); lcd.print(capteur4);lcd.setCursor(17,3); lcd.print("cm");*/
+  //actions toutes les secondes
+  if(compteur_temps%100==0)
+  {   
+  
   }
    
 }
@@ -922,7 +905,7 @@ void ai3() {
 void setup()
 {
  
-    Serial.begin(9600);
+    Serial.begin(115200);
     //attendre que le port serie réponde présent pour le debug
     while (! Serial) { delay(1); }
    if(DEBUG) Serial.println("Debug activé\n\n");
@@ -994,21 +977,9 @@ Serial.println(" => OK");
     couleur_equipe=EQUIPE_BLEUE; //equipe violette par defaut
     bProgrammeDemarre=false; // le programme n'est pas demarre quand l'arduino s'allume
     Serial.println(" => OK");
-
-  
-  /*pinMode(LED_BUILTIN, OUTPUT); // initialisation de la led interne de l'arduino
-  digitalWrite(LED_BUILTIN, LOW);    // led eteinte*/
   
   /*pinMode(PIN_CONTACTEUR_AR_D,INPUT_PULLUP); // contacteur arrière droit
   pinMode(PIN_CONTACTEUR_AR_G,INPUT_PULLUP); // contacteur arrière gauche*/
-
-/* //exemple d'init d'un servo moteur avec apprentissage
-  //Initialisation des pinces
-  servo_Pince_Gauche.attach(PIN_SERVO_01);
-  servo_Pince_Gauche.write(P_GAUCHE_OUVERT); 
-  delay(1500);
-  servo_Pince_Gauche.write(P_GAUCHE_FERME);
-   */
    
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////réception de l'information des roues codeuses
 
@@ -1052,7 +1023,9 @@ Serial.println(" => OK");
 
 
 ///////////
-
+  nombre_points=5; //on a déjà 5 points en posant le phare
+  couleur_equipe=EQUIPE_BLEUE;
+  start_time_match=millis();
   vitesseG_n=0;
   vitesseD_n=0;
   temps_match=0;
@@ -1093,51 +1066,90 @@ void loop() {
      //---------------------------------------------
      //CHOIX COULEUR
      //---------------------------------------------
+  if(!bProgrammeDemarre)
+  {
     int valeur_bouton=analogRead(PIN_COULEUR_EQUIPE);     
-    if(valeur_bouton<800) //bouton vers le haut
+    if((valeur_bouton<800)&&(couleur_equipe!=EQUIPE_BLEUE)) //bouton vers le haut
     {
       couleur_equipe=EQUIPE_BLEUE;
-#ifdef UTILSE_LEDS
-      METTRE_LEDS_A(LEDS_BLEU);
-#endif
+      lcd.clear();
+      lcd.setCursor(0,0); lcd.print("ROBOT TETES BRIQUEES");
+      lcd.setCursor(0,1); lcd.print("STRATEGIE 1");
+      lcd.setCursor(0,2); lcd.print("COULEUR: BLEU");
+      lcd.setCursor(0,3); lcd.print("READY!");
+      #ifdef UTILSE_LEDS
+        METTRE_LEDS_A(LEDS_BLEU);
+      #endif
+    }
+    if((valeur_bouton>=800)&&(couleur_equipe!=EQUIPE_JAUNE)) //bouton vers le haut
+    {
+      couleur_equipe=EQUIPE_JAUNE;
+      lcd.clear();
+      lcd.setCursor(0,0); lcd.print("ROBOT TETES BRIQUEES");
+      lcd.setCursor(0,1); lcd.print("STRATEGIE 1");
+      lcd.setCursor(0,2); lcd.print("COULEUR: JAUNE");
+      lcd.setCursor(0,3); lcd.print("READY!");
+      #ifdef UTILSE_LEDS
+        METTRE_LEDS_A(LEDS_ORANGE);
+      #endif
+    }
+  }
+
+
+  //---------------------------------------------
+  //LANCEMENT PROGRAMME
+  //---------------------------------------------
+  bool decision_debut_match=false;
+  if(!bProgrammeDemarre)
+  {
+    if(ARDUINO_ALONE)
+    {
+      decision_debut_match=(Serial.read()=='s');
     }
     else
     {
-      couleur_equipe=EQUIPE_JAUNE;
-#ifdef UTILSE_LEDS
-      METTRE_LEDS_A(LEDS_ORANGE);
-#endif
+      decision_debut_match=(digitalRead(PIN_TIRETTE)==LOW);
     }
-
-
-     //---------------------------------------------
-     //LANCEMENT PROGRAMME
-     //---------------------------------------------
-    if ((digitalRead(PIN_TIRETTE)==LOW)&&(bProgrammeDemarre==false))
-    {
-      bProgrammeDemarre=true; // le programme est demarre
-
-      //on vérifie la couleur de l'équipe avant de lancer le programme (pour être sûr)
-      int valeur=analogRead(PIN_COULEUR_EQUIPE);
-      if(valeur<800) //bouton vers le haut
-        couleur_equipe=EQUIPE_BLEUE;
-      else
-        couleur_equipe=EQUIPE_JAUNE;
-
-      etatCourant = 1;
-      temps_match = 0;
-    }
-if (temps_match > 100)
-{
-
-  vitesseD_n = 0;
-  vitesseG_n = 0;
-  ACTION_MOTEUR_GAUCHE(vitesseG_n);
-  ACTION_MOTEUR_DROITE(vitesseD_n);
-  
-  while (1)
-  {
   }
-}
+  
+  
+  if ((decision_debut_match)&&(!bProgrammeDemarre))
+  {
+    bProgrammeDemarre=true; // le programme est demarre
+    
+    //on vérifie la couleur de l'équipe avant de lancer le programme (pour être sûr)
+    int valeur=analogRead(PIN_COULEUR_EQUIPE);
+    if(valeur<800) //bouton vers le haut
+    couleur_equipe=EQUIPE_BLEUE;
+    else
+    couleur_equipe=EQUIPE_JAUNE;
+    
+    etatCourant = 1;
+    temps_match = 0;
+
+    start_time_match=millis();
+    
+    //initialisation écran LCD
+    lcd.clear();
+    lcd.setCursor(0,0); lcd.print("LANCEMENT MATCH");
+  }
+
+  if ((((millis()-start_time_match)/1000) >= DUREE_MATCH) && bProgrammeDemarre)
+  {
+    vitesseD_n = 0;
+    vitesseG_n = 0;
+    ACTION_MOTEUR_GAUCHE(vitesseG_n);
+    ACTION_MOTEUR_DROITE(vitesseD_n);
+
+    //initialisation écran LCD
+    lcd.clear();
+    lcd.setCursor(0,0); lcd.print("FIN DU MATCH!");
+    lcd.setCursor(0,2); lcd.print("NBRE DE PTS:");
+    lcd.setCursor(13,2); lcd.print(nombre_points);
+    
+    while (1)
+    {
+    }
+  }
 
 }
