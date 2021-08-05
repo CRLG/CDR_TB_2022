@@ -145,7 +145,6 @@
 //Création variables globales
 bool bProgrammeDemarre; // variable qui indique si le programme est demarre (demarre==true), utilisé par la tirette
 int couleur_equipe;
-long compteur_temps; //toutes les 10 ms a peu près (temps reel mou)
 int temps_match;
 float vitesseG_n;
 float vitesseD_n;
@@ -795,40 +794,6 @@ bool frontConvergence () /////////////////////////////////savoir s'il a converg�
   return ((bconvergence != prevbconvergence)&& bconvergence);
 }
 
-void cadenceur()
-{
-  //actions toutes les 12 millisecondes
-  
-
-  //actions toutes les 60 millisecondes
-  if(compteur_temps%5==0)
-  {
-    strategie (etatCourant);
-    //on regarde l'état des capteurs
-  }
-
-  //actions toutes les 240 millisecondes
-  if(compteur_temps%20==0)
-  {
-    //on s'occupe de la messagerie
-    //on lit la distance des obstacles
-    LectureDistanceObtsacle();
-  }
-
-  //actions toutes les 600 millisecondes
-  if(compteur_temps%50==0)
-  {
-      
-  }
-
-  //actions toutes les secondes
-  if(compteur_temps%100==0)
-  {   
-    Serial.println(step_time);
-  }
-   
-}
-
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////codeur 1
 void ai0() {
   // ai0 is activated if DigitalPin nr 2 is going from LOW to HIGH
@@ -875,16 +840,15 @@ void ai3() {
  *********************************************************************************/
 void setup()
 {
- 
-    Serial.begin(115200);
-    //attendre que le port serie réponde présent pour le debug
-    while (! Serial) { delay(1); }
-   if(DEBUG) Serial.println("Debug activé\n\n");
+  Serial.begin(115200);
+  //attendre que le port serie réponde présent pour le debug
+  while (! Serial) { delay(1); }
+  if(DEBUG) Serial.println("Debug activé\n\n");
+  
+  //Serial.begin (115200);
+  Wire.begin();
 
-//Serial.begin (115200);
-Wire.begin();
-
-pinMode(SHT_CAPTEUR_1, OUTPUT);
+  pinMode(SHT_CAPTEUR_1, OUTPUT);
   pinMode(SHT_CAPTEUR_2, OUTPUT);
   pinMode(SHT_CAPTEUR_3, OUTPUT);
   pinMode(SHT_CAPTEUR_4, OUTPUT);  
@@ -901,8 +865,6 @@ pinMode(SHT_CAPTEUR_1, OUTPUT);
   ChangerAdressesCapteursDistance();
   capteur_distance_started=false;
   Serial.println(" => OK");
-
-
 
   //on utilise les pinoches réservées aux moteurs des roues
   pinMode(PIN_PWM_GAUCHE,OUTPUT); //commande puissance moteur gauche
@@ -932,27 +894,23 @@ pinMode(SHT_CAPTEUR_1, OUTPUT);
   Serial.println(" => OK");
 
   Serial.print("Lancement du timer pour cadencer les actions");
-    //initialisation du chronométrage du match
-    /*MsTimer2::set(1, cadenceur); // période = duree du match, on activera avec la tirette
-    MsTimer2::start();*/
+  //initialisation du chronométrage du match
   step_time=0;
   previous_time_10_ms=millis();
   previous_time_50_ms=previous_time_10_ms;
   previous_time_200_ms=previous_time_10_ms;
   previous_time_500_ms=previous_time_10_ms;
   previous_time_1000_ms=previous_time_10_ms;
-    current_time=0;
-    //ticks=0;
-    compteur_temps=0;
-Serial.println(" => OK");
+  current_time=0;
+  Serial.println(" => OK");
 
-    Serial.print("Initialisation de la tirette, le bouton de couleur d'équipe");
-    //initialisation de la tirette      
-    pinMode(PIN_TIRETTE, INPUT);  //en entrée
-    pinMode(PIN_COULEUR_EQUIPE,INPUT_PULLUP); // choix de la couleur
-    couleur_equipe=EQUIPE_BLEUE; //equipe violette par defaut
-    bProgrammeDemarre=false; // le programme n'est pas demarre quand l'arduino s'allume
-    Serial.println(" => OK");
+  Serial.print("Initialisation de la tirette, le bouton de couleur d'équipe");
+  //initialisation de la tirette      
+  pinMode(PIN_TIRETTE, INPUT);  //en entrée
+  pinMode(PIN_COULEUR_EQUIPE,INPUT_PULLUP); // choix de la couleur
+  couleur_equipe=EQUIPE_BLEUE; //equipe violette par defaut
+  bProgrammeDemarre=false; // le programme n'est pas demarre quand l'arduino s'allume
+  Serial.println(" => OK");
   
   /*pinMode(PIN_CONTACTEUR_AR_D,INPUT_PULLUP); // contacteur arrière droit
   pinMode(PIN_CONTACTEUR_AR_G,INPUT_PULLUP); // contacteur arrière gauche*/
@@ -962,34 +920,27 @@ Serial.println(" => OK");
   Serial.print("Initialisation de la roue codeuse droite");
   pinMode(2, INPUT_PULLUP);           // set pin to input et pullup résistance
   pinMode(3, INPUT_PULLUP);           // set pin to input et pullup résistance
-  
   //Setting up interrupt
   //A rising pulse from encodenren activated ai0(). AttachInterrupt 0 is DigitalPin nr 2 on moust Arduino.
   attachInterrupt(0, ai0, RISING);
-  
   //B rising pulse from encodenren activated ai1(). AttachInterrupt 1 is DigitalPin nr 3 on moust Arduino.
   attachInterrupt(1, ai1, RISING);
-
   Serial.println(" => OK");
 
 
   Serial.print("Initialisation de la roue codeuse gauche");
   pinMode(18, INPUT_PULLUP);           // set pin to input et pullup résistance
   pinMode(19, INPUT_PULLUP);           // set pin to input et pullup résistance
-  
   //Setting up interrupt
   //A rising pulse from encodenren activated ai0(). AttachInterrupt 0 is DigitalPin nr 2 on moust Arduino.
   attachInterrupt(5, ai2, RISING);
-  
   //B rising pulse from encodenren activated ai1(). AttachInterrupt 1 is DigitalPin nr 3 on moust Arduino.
   attachInterrupt(4, ai3, RISING);
-
   Serial.println(" => OK");
 
   Serial.print("Initialisation de l'écran");
-    //initialisation écran LCD
+  //initialisation écran LCD
   lcd.init();
-
   // Affichage des distances sur l'écran LCD
   lcd.backlight();
   lcd.setCursor(0,0); lcd.print("ROBOT TETES BRIQUEES");
@@ -1015,27 +966,26 @@ Serial.println(" => OK");
   
   somme_steps=0;
   nb_steps=0;
- 
+  
   if(analogRead(PIN_COULEUR_EQUIPE)<800)
   {
     couleur_equipe=EQUIPE_BLEUE;//bouton vers le haut
-          lcd.clear();
-      lcd.setCursor(0,0); lcd.print("ROBOT TETES BRIQUEES");
-      lcd.setCursor(0,1); lcd.print("STRATEGIE 1");
-      lcd.setCursor(0,2); lcd.print("COULEUR: BLEU");
-      lcd.setCursor(0,3); lcd.print("READY!");
+    lcd.clear();
+    lcd.setCursor(0,0); lcd.print("ROBOT TETES BRIQUEES");
+    lcd.setCursor(0,1); lcd.print("STRATEGIE 1");
+    lcd.setCursor(0,2); lcd.print("COULEUR: BLEU");
+    lcd.setCursor(0,3); lcd.print("READY!");
   }
   else
   {
     couleur_equipe=EQUIPE_JAUNE;
-          lcd.clear();
-      lcd.setCursor(0,0); lcd.print("ROBOT TETES BRIQUEES");
-      lcd.setCursor(0,1); lcd.print("STRATEGIE 1");
-      lcd.setCursor(0,2); lcd.print("COULEUR: JAUNE");
-      lcd.setCursor(0,3); lcd.print("READY!");
+    lcd.clear();
+    lcd.setCursor(0,0); lcd.print("ROBOT TETES BRIQUEES");
+    lcd.setCursor(0,1); lcd.print("STRATEGIE 1");
+    lcd.setCursor(0,2); lcd.print("COULEUR: JAUNE");
+    lcd.setCursor(0,3); lcd.print("READY!");
   }
-      
-  
+
 }
 
 /*********************************************************************************
