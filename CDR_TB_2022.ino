@@ -1,7 +1,6 @@
-/*********************************************************************************
+/*************************************************************************************************************************************************************
  *                    PARTIE 1 : Intégrer des bibliothèques                      *
  *********************************************************************************/
-//#include "messagerieTB.h"
 #include <Wire.h>
 //#include <Pixy2.h>
 #include <Adafruit_MotorShield.h> // inclusion de la librairie pour commander un motor shield
@@ -13,9 +12,9 @@
 #include <avr/power.h>
 #endif
 
-/*********************************************************************************
- *                    PARTIE 2 : Définir des valeurs, des objets, des variables  *
- *********************************************************************************/
+/*************************************************************************************************************************************************************
+ *                    PARTIE 2 : Définir des valeurs, des objets, des variables                                                                              *
+ *************************************************************************************************************************************************************/
 //CONFIGURATION DU ROBOT
 //pour debuguer le programme, mettre à true
 #define DEBUG false
@@ -86,13 +85,13 @@
 #define PIN_CMD_2_DROIT     37 //commande n°2 moteur droit (bleu)
 #define PIN_38              38 //pas encore utilisé
 #define PIN_39              39 //pas encore utilisé
-#define PIN_40              40 //pas encore utilisé
+#define SHT_CAPTEUR_1       40 //pour programmer le capteur de distance n°1
 #define PIN_41              41 //pas encore utilisé
-#define PIN_42              42 //pas encore utilisé
+#define SHT_CAPTEUR_2       42 //pour programmer le capteur de distance n°2
 #define PIN_43              43 //pas encore utilisé
-#define PIN_44              44 //PWM - pas encore utilisé
+#define SHT_CAPTEUR_3       44 //pour programmer le capteur de distance n°3
 #define PIN_45              45 //PWM - pas encore utilisé
-#define PIN_46              46 //PWM - pas encore utilisé
+#define SHT_CAPTEUR_4       46 //pour programmer le capteur de distance n°4 c'est également une sortie PWM
 #define PIN_47              47 //pas encore utilisé
 #define PIN_48              48 //pas encore utilisé
 #define PIN_49              49 //pas encore utilisé
@@ -113,8 +112,6 @@
 #define AVANT                     1 //sens des moteurs des roues
 #define ARRIERE                   -1 //sens des moteurs des roues
 #define STOP                      0 //sens des moteurs des roues
-#define VITESSE_PAP_LENTE         120 //vitesse des moteurs pas à pas
-#define VITESSE_PAP_RAPIDE        120 //vitesse des moteurs pas à pas
 #define NBRE_DE_LEDS              3 //nombre de leds
 #define LEDS_OFF                 0 //led eteinte
 #define LEDS_BLEU                 1 //couleur bleue pour les leds
@@ -124,8 +121,6 @@
 #define LED_GAUCHE                0
 #define LED_MILIEU                1
 #define LED_DROITE                2
-#define VITESSE_DROIT 20
-#define VITESSE_TOURNER 20
 
 //valeurs des servo_moteurs
 #define P_GAUCHE_FERME 180
@@ -146,6 +141,7 @@
 // DECLARATION VARIABLES: MOTEUR, CAMERA, LEDS,...
 //----------------------------------------------------------------------------------------------
 
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////// variables globales diverses
 //Création variables globales
 bool bProgrammeDemarre; // variable qui indique si le programme est demarre (demarre==true), utilisé par la tirette
 int couleur_equipe;
@@ -154,11 +150,18 @@ int temps_match;
 float vitesseG_n;
 float vitesseD_n;
 int step_time;
-long start_time;
-long start_time_match;
+unsigned long previous_time_10_ms;
+unsigned long previous_time_50_ms;
+unsigned long previous_time_200_ms;
+unsigned long previous_time_500_ms;
+unsigned long previous_time_1000_ms;
+unsigned long current_time;
+unsigned long start_time_match;
 int nombre_points;
+long somme_steps;
+int nb_steps;
 
-
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////// servos
 //Création des servos
 Servo servo_Pince_Gauche;
 Servo servo_Pince_Droite;
@@ -170,6 +173,7 @@ Servo servo_07;
 Servo servo_08;
 Servo servo_09;
 
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////// moteurs
 //Création des 2 moteurs pas à pas
 // Création d'une carte moteur avec l'adresse I2C par défaut
 Adafruit_MotorShield Carte_Moteur = Adafruit_MotorShield();
@@ -177,29 +181,30 @@ Adafruit_MotorShield Carte_Moteur = Adafruit_MotorShield();
 Adafruit_StepperMotor *Moteur_G = Carte_Moteur.getStepper(200, 1);// moteur_G (M1 et M2 connectés sur le shield)
 Adafruit_StepperMotor *Moteur_D = Carte_Moteur.getStepper(200, 2);// moteur_D (M3 et M4 connectés sur le shield)
 
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////// leds
 //création des leds
 #ifdef UTILISE_LEDS
   Adafruit_NeoPixel pixels = Adafruit_NeoPixel(NBRE_DE_LEDS, PIN_LEDS, NEO_GRB + NEO_KHZ800);
 #endif
 
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////// camera
 //création caméra
 #ifdef UTILISE_CAMERA
   Pixy2 pixy;
 #endif
 
-//adresses à donner aux 4 capteurs
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////// capteurs distance
+//adresses à donner aux 4 capteurs de distance
 #define CAPTEUR_1_ADDRESS 0x30
 #define CAPTEUR_2_ADDRESS 0x31
 #define CAPTEUR_3_ADDRESS 0x32
 #define CAPTEUR_4_ADDRESS 0x33
+//pour stocker les mesures de distance
 float capteur1,capteur2, capteur3,capteur4;
-
-
-//sorties pour programmer les capteurs
-#define SHT_CAPTEUR_1 40
-#define SHT_CAPTEUR_2 42
-#define SHT_CAPTEUR_3 44
-#define SHT_CAPTEUR_4 46
+//Pour prendre les mesures de distance
+uint16_t mesure1, mesure2, mesure3, mesure4;
+//pour savoir si une mesure de distance a été lancée
+bool capteur_distance_started;
 
 //création des capteurs
 Adafruit_VL53L0X CAPTEUR_1 = Adafruit_VL53L0X();
@@ -207,17 +212,9 @@ Adafruit_VL53L0X CAPTEUR_2 = Adafruit_VL53L0X();
 Adafruit_VL53L0X CAPTEUR_3 = Adafruit_VL53L0X();
 Adafruit_VL53L0X CAPTEUR_4 = Adafruit_VL53L0X();
 
-//Pour stocker les mesures
-uint16_t mesure1;
-uint16_t mesure2;
-uint16_t mesure3;
-uint16_t mesure4;
-
-bool capteur_distance_started;
-
 LiquidCrystal_I2C lcd(0x27,20,4);  // set the LCD address to 0x27 for a 16 chars and 2 line display
 
-//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////// codeur
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////// codeurs
 
 volatile signed int counter1 = 0;  //This variable will increase or decrease depending on the rotation of encoder
 volatile signed int counter2 = 0;  //This variable will increase or decrease depending on the rotation of encoder
@@ -225,7 +222,6 @@ volatile signed int counter2 = 0;  //This variable will increase or decrease dep
 float dcodeur = 6; // diamètre de la roue codeuse  (à changer) en cm
 
 // calculs
-
 /*float pi = 3.14159265359;
 float perimetre_roue_codeuse = pi*dcodeur;
 float ntour_par_pas = 1200/perimetre_roue_codeuse;*/
@@ -234,7 +230,7 @@ const double unite_distanceD = 0.0157; // unite_distanceD --> distance parcourue
 const double unite_angleG = 0.075; // unite_angle --> angle parcourue en degré pour 1 pas codeur
 const double unite_angleD = 0.075; // unite_angle --> angle parcourue en degré pour 1 pas codeur
 
-/////////////////////////////////////////////////////////////////////////////////////////// asservissement distance
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////// asservissement distance
 
 float distance; // distance à parcourir en cm (à changer pour faire des tests)
 
@@ -252,7 +248,7 @@ float k = 10; // coefficient de proportionalite
 float save_1; // variable pour faire un comptage de distance relatif
 float save_2;
 
-/////////////////////////////////////////////////////////////////////////////////////////// asservissement angulaire
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////// asservissement angulaire
 
 float angl;
 
@@ -270,46 +266,41 @@ float k_angle = 2.5;
 float save_angle_1; // variable pour faire un comptage d'angle relatif
 float save_angle_2;
 
-
-//////////////////////////////////////////////savoir s'il a convergé
-
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////// asservissement global
+//savoir si le robot a convergé
 bool bconvergence = true;
 bool prevbconvergence;
 int etatCourant;
 
-/////////////////////////////////////////////pour activer l'asservissement en distance ou en angle
-
+//pour activer l'asservissement en distance ou en angle
 int etat_asservissement = 0;
 
-/*********************************************************************************
- *                    PARTIE 3 : Définition des fnctions                         *
- *********************************************************************************/
 
+
+/*************************************************************************************************************************************************************
+ *                    PARTIE 3 : Définition des fonctions                                                                                                     *
+ *************************************************************************************************************************************************************/
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////// fonctions des moteurs pas à pas
 /*
  * FONCTION VITESSE_MOTEURS_PAS_A_PAS
  * positionne la vitesse des moteurs pas à pas gauche et droite
  * Demande une valeur qui est la vitesse de rotation en tours par minute
  */
-void VITESSE_MOTEURS_PAS_A_PAS_GAUCHE(int valeur_vitesseG)
+void VITESSE_MOTEURS_PAS_A_PAS(int moteur, int valeur_vitesse)
 {
-    if(valeur_vitesseG>100)
-      valeur_vitesseG=100;
-    if(valeur_vitesseG<0)
-      valeur_vitesseG=0;
-
-      int digital_vitesseG=map(valeur_vitesseG,0,100,0,255);
-    Moteur_G->setSpeed(digital_vitesseG);   
-}
-
-void VITESSE_MOTEURS_PAS_A_PAS_DROITE(int valeur_vitesseD)
-{
-    if(valeur_vitesseD>100)
-      valeur_vitesseD=100;
-    if(valeur_vitesseD<0)
-      valeur_vitesseD=0;
-
-      int digital_vitesseD=map(valeur_vitesseD,0,100,0,255);  
-    Moteur_D->setSpeed(digital_vitesseD); 
+  //normalisation de la vitesse entre 0 et 100
+  if(valeur_vitesse>100)
+    valeur_vitesse=100;
+  if(valeur_vitesse<0)
+    valeur_vitesse=0;
+  //conversion en valeur analogique pour l'arduino entre 0 et 255
+  int digital_vitesse=map(valeur_vitesse,0,100,0,255);
+  //application de la vitesse au moteur
+  if(moteur==MOTEUR_GAUCHE)
+    Moteur_G->setSpeed(digital_vitesse);
+  if(moteur==MOTEUR_DROIT)
+    Moteur_D->setSpeed(digital_vitesse);  
 }
 
 /*
@@ -317,137 +308,132 @@ void VITESSE_MOTEURS_PAS_A_PAS_DROITE(int valeur_vitesseD)
  * Fait touner le moteur pas à pas droit et gauche d'un pas
  * Demande le sens de rotation du moteur
  */
-void TOURNER_UN_PAS_GAUCHE(int sensG)
+void TOURNER_UN_PAS(int moteur, int sens)
 {
-    if(sensG==AVANT)
-    {
+  if(sens==AVANT)
+  {
+    if(moteur==MOTEUR_GAUCHE)
       Moteur_G->step(1,FORWARD,SINGLE); //en avant
-    }
-    if(sensG==ARRIERE)
-    {
-      Moteur_G->step(1,BACKWARD,SINGLE); //en arriere
-    }
-}
-
-void TOURNER_UN_PAS_DROITE(int sensD)
-{
-    if(sensD==AVANT)
-    {
+    if(moteur==MOTEUR_DROIT)
       Moteur_D->step(1,BACKWARD,SINGLE); //en avant
-    }
-    if(sensD==ARRIERE)
-    {
+  }
+  if(sens==ARRIERE)
+  {
+    if(moteur==MOTEUR_GAUCHE)
+      Moteur_G->step(1,BACKWARD,SINGLE); //en arriere
+    if(moteur==MOTEUR_DROIT)
       Moteur_D->step(1,FORWARD,SINGLE); //en arriere
-    }
+  }
 }
 
 /*
  * FONCTION ACTION_MOTEUR
  * défini la vitesse des deux moteurs
- * si la vitesse peut être négative
- * 
+ * la vitesse peut être négative dans ce cas il s'agit de tourner en arrière
  */
-
-void ACTION_MOTEUR_GAUCHE(float vitesseG)
+void ACTION_MOTEUR(int moteur, float vitesse)
 {
-  int vitesseG_pos=abs(vitesseG);
-  VITESSE_MOTEURS_PAS_A_PAS_GAUCHE(vitesseG_pos);
+  //vitesse positive exigée
+  int vitesse_pos=abs(vitesse);
+  //application de la vitesse
+  VITESSE_MOTEURS_PAS_A_PAS(moteur, vitesse_pos);
 
-  if(vitesseG_pos < 0.1) vitesseG=0;
-  if(vitesseG>0)
-    TOURNER_UN_PAS_GAUCHE(AVANT);
-  if(vitesseG<0)
-    TOURNER_UN_PAS_GAUCHE(ARRIERE);
+  //vitesse mini supérieure à 0.1
+  if(vitesse_pos < 0.1) vitesse=0;
+  //on applique le sens de rotation suivant le signe de la vitesse
+  if(vitesse>0)
+    TOURNER_UN_PAS(moteur, AVANT);
+  if(vitesse<0)
+    TOURNER_UN_PAS(moteur, ARRIERE);
 }
 
-void ACTION_MOTEUR_DROITE(float vitesseD)
-{
-  int vitesseD_pos=abs(vitesseD);
-  VITESSE_MOTEURS_PAS_A_PAS_DROITE(vitesseD_pos);
-
-  if(vitesseD_pos < 0.1) vitesseD=0;
-  if(vitesseD>0)
-    TOURNER_UN_PAS_DROITE(AVANT);
-  if(vitesseD<0)
-    TOURNER_UN_PAS_DROITE(ARRIERE);
-}
-
-////////////////////////////////////////////////////////////////////////////////////// asservissement distance
-
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////// fonctions asservissement distance
+/*
+ * FONCTION asservissement()
+ * fonction d'asservissement en distance
+ */
 void asservissement()
 {
-bool bconvergenceDistanceD = false; // pour savoir s'il a convergé
-bool bconvergenceDistanceG = false;
-
-prevbconvergence = bconvergence;
-
-save_1 = save_1 + (counter2*unite_distanceG);
-save_2 = save_2 + (counter1*unite_distanceD);
-
-counter1 = 0;
-counter2 = 0;
-
-erreur1 = distance - save_1; // calcul de l'erreur pour le moteur1 
-erreur2 = distance - save_2; // calcul de l'erreur pour le moteur2
-
-int erreur1_abs=abs(erreur1);
-int erreur2_abs=abs(erreur2);
-
-////// gauche
-
-if (erreur1_abs > 0.3) { // marge d'erreur de 5mm pour l'instant --> test
+  bool bconvergenceDistanceD = false; // pour savoir s'il a convergé
+  bool bconvergenceDistanceG = false;
   
-  consigne1_abs = (int)(k*erreur1_abs) ;
-
-  if (consigne1_abs > 100) { // pour que la consigne ne parte pas en vrille
-    consigne1_abs = 100;
-  }
-
-  if(erreur1>0)
+  prevbconvergence = bconvergence;
+  
+  save_1 = save_1 + (counter2*unite_distanceG);
+  save_2 = save_2 + (counter1*unite_distanceD);
+  
+  counter1 = 0;
+  counter2 = 0;
+  
+  erreur1 = distance - save_1; // calcul de l'erreur pour le moteur1 
+  erreur2 = distance - save_2; // calcul de l'erreur pour le moteur2
+  
+  int erreur1_abs=abs(erreur1);
+  int erreur2_abs=abs(erreur2);
+  
+  //vérification de la convergence à gauche
+  // marge d'erreur de 3mm pour l'instant --> test
+  if (erreur1_abs > 0.3)
   {
-    vitesseG_n = (float)consigne1_abs; // vitesse du moteur
+    
+    consigne1_abs = (int)(k*erreur1_abs) ;
+  
+    if (consigne1_abs > 100) { // pour que la consigne ne parte pas en vrille
+      consigne1_abs = 100;
+    }
+  
+    if(erreur1>0)
+    {
+      vitesseG_n = (float)consigne1_abs; // vitesse du moteur
+    }
+    else
+    {
+      vitesseG_n=(float)((-1.0)*consigne1_abs);
+    }
   }
   else
   {
-    vitesseG_n=(float)((-1.0)*consigne1_abs);
+    bconvergenceDistanceG=true;
+    vitesseG_n=0;
   }
-}
-else {
-  bconvergenceDistanceG=true;
-  vitesseG_n=0;
-}
-
-/////droite
-
-if (erreur2_abs > 0.3) { // marge d'erreur de 5mm pour l'instant --> test
   
-  consigne2_abs = (int)(k*erreur2_abs) ;
-
-  if (consigne2_abs > 100) { // pour que la consigne ne parte pas en vrille
-    consigne2_abs = 100;
-  }
-
-  if(erreur2>0)
+  //vérification de la convergence à droite
+  // marge d'erreur de 3mm pour l'instant --> test
+  if (erreur2_abs > 0.3)
   {
-    vitesseD_n = (float)consigne2_abs; // vitesse du moteur
+    //on etablit la consigne à droite
+    consigne2_abs = (int)(k*erreur2_abs) ;
+    
+    if (consigne2_abs > 100)
+    { // pour que la consigne ne parte pas en vrille
+      consigne2_abs = 100;
+    }
+    
+    if(erreur2>0)
+    {
+      vitesseD_n = (float)consigne2_abs; // vitesse du moteur
+    }
+    else
+    {
+      vitesseD_n=(float)((-1.0)*consigne2_abs);
+    }
   }
   else
   {
-    vitesseD_n=(float)((-1.0)*consigne2_abs);
+    bconvergenceDistanceD=true;
+    vitesseD_n=0;
   }
-}
-else {
-  bconvergenceDistanceD=true;
-  vitesseD_n=0;
-}
-
-/////////////pour savoir s'il a convergé
-bconvergence=(bconvergenceDistanceD && bconvergenceDistanceG);
+  
+  //pour savoir s'il a convergé
+  bconvergence=(bconvergenceDistanceD && bconvergenceDistanceG);
 
 }
 
-/////////////////////////////////////////////////////////////////////////////////asservissement d'angle
-
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////// fonctions asservissement d'angle
+/*
+ * FONCTION asservissement_angle()
+ * fonction d'asservissement en angle
+ */
 void asservissement_angle ()
 {
 bool bconvergenceDistanceD = false; // pour savoir s'il a convergé
@@ -666,7 +652,7 @@ void LectureDistanceObtsacle() {
     if(CAPTEUR_1.readRangeStatus() != 4)
     { 
       // if not out of range
-      mesure1=CAPTEUR_1.readRange();
+      mesure1=CAPTEUR_1.readRangeResult();
       float temp_mes=mesure1/10.;
          
       if(temp_mes>300.)
@@ -698,7 +684,7 @@ void LectureDistanceObtsacle() {
     if(CAPTEUR_2.readRangeStatus() != 4)
     { 
       // if not out of range
-      mesure2=CAPTEUR_2.readRange();
+      mesure2=CAPTEUR_2.readRangeResult();
       float temp_mes=mesure2/10.;
          
       if(temp_mes>300.)
@@ -731,7 +717,7 @@ void LectureDistanceObtsacle() {
     if(CAPTEUR_3.readRangeStatus() != 4)
     { 
       // if not out of range
-      mesure3=CAPTEUR_3.readRange();
+      mesure3=CAPTEUR_3.readRangeResult();
       float temp_mes=mesure3/10.;
          
       if(temp_mes>300.)
@@ -761,7 +747,7 @@ void LectureDistanceObtsacle() {
   if(DEBUG) Serial.print(F("4: "));
   if(CAPTEUR_4.isRangeComplete())
   {
-    if(CAPTEUR_4.readRangeStatus() != 4)
+    if(CAPTEUR_4.readRangeResult() != 4)
     { 
       // if not out of range
       mesure4=CAPTEUR_4.readRange();
@@ -811,40 +797,25 @@ bool frontConvergence () /////////////////////////////////savoir s'il a converg�
 
 void cadenceur()
 {
-  //actions toutes les 10 millisecondes à peu près
-  //on relève les pas codeurs
-  //on fait une boucle d'asservissement
+  //actions toutes les 12 millisecondes
   
-  if (etat_asservissement == 1)
-  {
-    asservissement();
-  }
-  
-  if (etat_asservissement == 2)
-  {
-    asservissement_angle ();
-  }
-  
-  if (frontConvergence())
-  {
-    etatCourant++;
-  }  
 
-  //actions toutes les 50 millisecondes
+  //actions toutes les 60 millisecondes
   if(compteur_temps%5==0)
   {
     strategie (etatCourant);
     //on regarde l'état des capteurs
   }
 
-  //actions toutes les 200 millisecondes
+  //actions toutes les 240 millisecondes
   if(compteur_temps%20==0)
   {
     //on s'occupe de la messagerie
+    //on lit la distance des obstacles
     LectureDistanceObtsacle();
   }
 
-  //actions toutes les 500 millisecondes
+  //actions toutes les 600 millisecondes
   if(compteur_temps%50==0)
   {
       
@@ -853,7 +824,7 @@ void cadenceur()
   //actions toutes les secondes
   if(compteur_temps%100==0)
   {   
-  
+    Serial.println(step_time);
   }
    
 }
@@ -964,8 +935,13 @@ pinMode(SHT_CAPTEUR_1, OUTPUT);
     //initialisation du chronométrage du match
     /*MsTimer2::set(1, cadenceur); // période = duree du match, on activera avec la tirette
     MsTimer2::start();*/
-    step_time=0;
-    start_time=millis();
+  step_time=0;
+  previous_time_10_ms=millis();
+  previous_time_50_ms=previous_time_10_ms;
+  previous_time_200_ms=previous_time_10_ms;
+  previous_time_500_ms=previous_time_10_ms;
+  previous_time_1000_ms=previous_time_10_ms;
+    current_time=0;
     //ticks=0;
     compteur_temps=0;
 Serial.println(" => OK");
@@ -1024,8 +1000,7 @@ Serial.println(" => OK");
 
 ///////////
   nombre_points=5; //on a déjà 5 points en posant le phare
-  couleur_equipe=EQUIPE_BLEUE;
-  start_time_match=millis();
+  start_time_match=previous_time_10_ms;
   vitesseG_n=0;
   vitesseD_n=0;
   temps_match=0;
@@ -1037,7 +1012,29 @@ Serial.println(" => OK");
   save_angle_1 = 0.0;
   distance = 0.0;
   angl = 0.0;
-
+  
+  somme_steps=0;
+  nb_steps=0;
+ 
+  if(analogRead(PIN_COULEUR_EQUIPE)<800)
+  {
+    couleur_equipe=EQUIPE_BLEUE;//bouton vers le haut
+          lcd.clear();
+      lcd.setCursor(0,0); lcd.print("ROBOT TETES BRIQUEES");
+      lcd.setCursor(0,1); lcd.print("STRATEGIE 1");
+      lcd.setCursor(0,2); lcd.print("COULEUR: BLEU");
+      lcd.setCursor(0,3); lcd.print("READY!");
+  }
+  else
+  {
+    couleur_equipe=EQUIPE_JAUNE;
+          lcd.clear();
+      lcd.setCursor(0,0); lcd.print("ROBOT TETES BRIQUEES");
+      lcd.setCursor(0,1); lcd.print("STRATEGIE 1");
+      lcd.setCursor(0,2); lcd.print("COULEUR: JAUNE");
+      lcd.setCursor(0,3); lcd.print("READY!");
+  }
+      
   
 }
 
@@ -1047,25 +1044,64 @@ Serial.println(" => OK");
 void loop() {
 
     //timer
-    step_time=millis()-start_time;
-    if(step_time>=10)
+    current_time=millis();
+
+    //cadenceur
+    //taches toutes les 10 ms
+    if((current_time-previous_time_10_ms)>=10)
     {
-      step_time=0;
-      start_time=millis();
-      compteur_temps++;
-      cadenceur();
+      step_time=(current_time-previous_time_10_ms);
+      if(bProgrammeDemarre)
+      {
+        somme_steps += step_time;
+        nb_steps++;
+      }
+      previous_time_10_ms=current_time;
+      //on relève les pas codeurs
+      //on fait une boucle d'asservissement
+      if (etat_asservissement == 1) asservissement();
+      
+      if (etat_asservissement == 2) asservissement_angle();
+      
+      if (frontConvergence()) etatCourant++;
+    }
+    //taches toutes les 50 ms
+    if((current_time-previous_time_50_ms)>=50)
+    {
+      previous_time_50_ms=current_time;
+      strategie (etatCourant);
+      //on regarde l'état des capteurs
+      //TODO
+    }
+    //taches toutes les 200 ms
+    if((current_time-previous_time_200_ms)>=200)
+    {
+      previous_time_200_ms=current_time;
+      //on s'occupe de la messagerie
+      //TODO
+      //on lit la distance des obstacles
+      //LectureDistanceObtsacle();
+    }
+    //taches toutes les 500 ms
+    if((current_time-previous_time_500_ms)>=500)
+    {
+      previous_time_500_ms=current_time;
+    }
+    //taches toutes les 1 s
+    if((current_time-previous_time_1000_ms)>=1000)
+    {
+      previous_time_1000_ms=current_time;
+      Serial.println(step_time);
     }
 
+   
+  //les actions lancées dans la boucle infinie
+   ACTION_MOTEUR(MOTEUR_GAUCHE, vitesseG_n);
+   ACTION_MOTEUR(MOTEUR_DROIT, vitesseD_n);
 
-    
-    
-    //les actions lancées dans la boucle infinie
-     ACTION_MOTEUR_GAUCHE(vitesseG_n);
-     ACTION_MOTEUR_DROITE(vitesseD_n);
- 
-     //---------------------------------------------
-     //CHOIX COULEUR
-     //---------------------------------------------
+   //---------------------------------------------
+   //CHOIX COULEUR
+   //---------------------------------------------
   if(!bProgrammeDemarre)
   {
     int valeur_bouton=analogRead(PIN_COULEUR_EQUIPE);     
@@ -1127,19 +1163,27 @@ void loop() {
     etatCourant = 1;
     temps_match = 0;
 
-    start_time_match=millis();
+    start_time_match=current_time;
     
     //initialisation écran LCD
     lcd.clear();
     lcd.setCursor(0,0); lcd.print("LANCEMENT MATCH");
   }
 
-  if ((((millis()-start_time_match)/1000) >= DUREE_MATCH) && bProgrammeDemarre)
+  //calcul du temps match
+  int temps_match_ecoule=(current_time-start_time_match)/1000;
+  if ((temps_match_ecoule >= DUREE_MATCH) && bProgrammeDemarre)
   {
     vitesseD_n = 0;
     vitesseG_n = 0;
-    ACTION_MOTEUR_GAUCHE(vitesseG_n);
-    ACTION_MOTEUR_DROITE(vitesseD_n);
+    ACTION_MOTEUR(MOTEUR_GAUCHE, vitesseG_n);
+    ACTION_MOTEUR(MOTEUR_DROIT, vitesseD_n);
+
+    //moyenne d'un pas du cadenceur
+    float moyenne=(float)(somme_steps/nb_steps);
+    Serial.print(F("Moyenne d'un pas cadenceur: "));
+    Serial.print(moyenne);
+    Serial.print(F(" ms"));
 
     //initialisation écran LCD
     lcd.clear();
